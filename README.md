@@ -10,7 +10,13 @@ Very fast, header-only/compiled, C++ logging library. [![Build Status](https://t
 
 #### Static lib version (recommended - much faster compile times, v1.4.0)
 * Copy [src/spdlog.cpp](https://github.com/gabime/spdlog/blob/v1.x/src/spdlog.cpp) to your build tree and pass the `-DSPDLOG_COMPILED_LIB` to the compiler.
-* Or use CMake to build and use. See [example](https://github.com/gabime/spdlog/blob/v1.x/example/CMakeLists.txt).
+* Or use **CMake** to build:
+
+      $ git clone https://github.com/gabime/spdlog.git
+      $ cd spdlog && mkdir build && cd build
+      $ cmake .. && make -j
+      
+   see example [CMakeLists.txt](https://github.com/gabime/spdlog/blob/v1.x/example/CMakeLists.txt) on how to use.
 
 
 ## Platforms
@@ -42,7 +48,6 @@ Very fast, header-only/compiled, C++ logging library. [![Build Status](https://t
     * Windows debugger (```OutputDebugString(..)```)
     * Easily extendable with custom log targets  (just implement a single function in the [sink](include/spdlog/sinks/sink.h) interface).
 * Severity based filtering - threshold levels can be modified in runtime as well as in compile time.
-* Binary data logging.
 
  
 ## Usage samples
@@ -153,9 +158,8 @@ spdlog::flush_every(std::chrono::seconds(3));
 ```
 
 ---
-#### Binary logging
+#### Log binary data in hex
 ```c++
-// log binary data as hex.
 // many types of std::container<char> types can be used.
 // ranges are supported too.
 // format flags:

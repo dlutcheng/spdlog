@@ -22,10 +22,17 @@
 #include "spdlog/details/os.h"
 #endif
 
-#include <memory>
-#include <string>
 #include <vector>
-#include <functional>
+
+#define SPDLOG_LOGGER_CATCH()                                                                                                              \
+    catch (const std::exception &ex)                                                                                                       \
+    {                                                                                                                                      \
+        err_handler_(ex.what());                                                                                                           \
+    }                                                                                                                                      \
+    catch (...)                                                                                                                            \
+    {                                                                                                                                      \
+        err_handler_("Unknown exception in logger");                                                                                       \
+    }
 
 namespace spdlog {
 class logger
@@ -63,7 +70,7 @@ public:
     void swap(spdlog::logger &other);
 
     template<typename... Args>
-    void force_log(source_loc loc, level::level_enum lvl, const char *fmt, const Args &... args)
+    void force_log(source_loc loc, level::level_enum lvl, string_view_t fmt, const Args &... args)
     {
         try
         {
@@ -72,18 +79,11 @@ public:
             details::log_msg log_msg(loc, name_, lvl, string_view_t(buf.data(), buf.size()));
             sink_it_(log_msg);
         }
-        catch (const std::exception &ex)
-        {
-            err_handler_(ex.what());
-        }
-        catch (...)
-        {
-            err_handler_("Unknown exception in logger");
-        }
+        SPDLOG_LOGGER_CATCH()
     }
 
     template<typename... Args>
-    void log(source_loc loc, level::level_enum lvl, const char *fmt, const Args &... args)
+    void log(source_loc loc, level::level_enum lvl, string_view_t fmt, const Args &... args)
     {
         if (should_log(lvl))
         {
@@ -92,46 +92,46 @@ public:
     }
 
     template<typename... Args>
-    void log(level::level_enum lvl, const char *fmt, const Args &... args)
+    void log(level::level_enum lvl, string_view_t fmt, const Args &... args)
     {
         log(source_loc{}, lvl, fmt, args...);
     }
 
-    void log(source_loc loc, level::level_enum lvl, const char *msg);
-    void log(level::level_enum lvl, const char *msg);
+    void log(source_loc loc, level::level_enum lvl, const string_view_t msg);
+    void log(level::level_enum lvl, string_view_t msg);
 
     template<typename... Args>
-    void trace(const char *fmt, const Args &... args)
+    void trace(string_view_t fmt, const Args &... args)
     {
         log(level::trace, fmt, args...);
     }
 
     template<typename... Args>
-    void debug(const char *fmt, const Args &... args)
+    void debug(string_view_t fmt, const Args &... args)
     {
         log(level::debug, fmt, args...);
     }
 
     template<typename... Args>
-    void info(const char *fmt, const Args &... args)
+    void info(string_view_t fmt, const Args &... args)
     {
         log(level::info, fmt, args...);
     }
 
     template<typename... Args>
-    void warn(const char *fmt, const Args &... args)
+    void warn(string_view_t fmt, const Args &... args)
     {
         log(level::warn, fmt, args...);
     }
 
     template<typename... Args>
-    void error(const char *fmt, const Args &... args)
+    void error(string_view_t fmt, const Args &... args)
     {
         log(level::err, fmt, args...);
     }
 
     template<typename... Args>
-    void critical(const char *fmt, const Args &... args)
+    void critical(string_view_t fmt, const Args &... args)
     {
         log(level::critical, fmt, args...);
     }
@@ -143,30 +143,20 @@ public:
     }
 
     // T can be statically converted to string_view
-    template<class T, typename std::enable_if<std::is_convertible<T, spdlog::string_view_t>::value, T>::type * = nullptr>
+    template<class T, typename std::enable_if<std::is_convertible<const T &, spdlog::string_view_t>::value, T>::type * = nullptr>
     void log(source_loc loc, level::level_enum lvl, const T &msg)
     {
         if (!should_log(lvl))
         {
             return;
         }
-        try
-        {
-            details::log_msg log_msg(loc, name_, lvl, msg);
-            sink_it_(log_msg);
-        }
-        catch (const std::exception &ex)
-        {
-            err_handler_(ex.what());
-        }
-        catch (...)
-        {
-            err_handler_("Unknown exception in logger");
-        }
+
+        details::log_msg log_msg(loc, name_, lvl, msg);
+        sink_it_(log_msg);
     }
 
-    // T cannot be statically converted to string_view
-    template<class T, typename std::enable_if<!std::is_convertible<T, spdlog::string_view_t>::value, T>::type * = nullptr>
+    // T cannot be statically converted to string_view or wstring_view
+    template<class T, typename std::enable_if<!std::is_convertible<const T &, spdlog::string_view_t>::value && !is_convertible_to_wstring_view<const T &>::value, T>::type * = nullptr>
     void log(source_loc loc, level::level_enum lvl, const T &msg)
     {
         if (!should_log(lvl))
@@ -180,14 +170,7 @@ public:
             details::log_msg log_msg(loc, name_, lvl, string_view_t(buf.data(), buf.size()));
             sink_it_(log_msg);
         }
-        catch (const std::exception &ex)
-        {
-            err_handler_(ex.what());
-        }
-        catch (...)
-        {
-            err_handler_("Unknown exception in logger");
-        }
+        SPDLOG_LOGGER_CATCH()
     }
 
     template<typename T>
@@ -231,7 +214,77 @@ public:
 #error SPDLOG_WCHAR_TO_UTF8_SUPPORT only supported on windows
 #else
     template<typename... Args>
-    void log(source_loc source, level::level_enum lvl, const wchar_t *fmt, const Args &... args)
+    void force_log(source_loc loc, level::level_enum lvl, wstring_view_t fmt, const Args &... args)
+    {
+        try
+        {
+            // format to wmemory_buffer and convert to utf8
+            fmt::wmemory_buffer wbuf;
+            fmt::format_to(wbuf, fmt, args...);
+
+            fmt::memory_buffer buf;
+            details::os::wstr_to_utf8buf(wstring_view_t(wbuf.data(), wbuf.size()), buf);
+
+            details::log_msg log_msg(loc, name_, lvl, string_view_t(buf.data(), buf.size()));
+            sink_it_(log_msg);
+        }
+        SPDLOG_LOGGER_CATCH()
+    }
+
+    template<typename... Args>
+    void log(source_loc loc, level::level_enum lvl, wstring_view_t fmt, const Args &... args)
+    {
+        if (should_log(lvl))
+        {
+            force_log(loc, lvl, fmt, args...);
+        }
+    }
+
+    template<typename... Args>
+    void log(level::level_enum lvl, wstring_view_t fmt, const Args &... args)
+    {
+        log(source_loc{}, lvl, fmt, args...);
+    }
+
+    template<typename... Args>
+    void trace(wstring_view_t fmt, const Args &... args)
+    {
+        log(level::trace, fmt, args...);
+    }
+
+    template<typename... Args>
+    void debug(wstring_view_t fmt, const Args &... args)
+    {
+        log(level::debug, fmt, args...);
+    }
+
+    template<typename... Args>
+    void info(wstring_view_t fmt, const Args &... args)
+    {
+        log(level::info, fmt, args...);
+    }
+
+    template<typename... Args>
+    void warn(wstring_view_t fmt, const Args &... args)
+    {
+        log(level::warn, fmt, args...);
+    }
+
+    template<typename... Args>
+    void error(wstring_view_t fmt, const Args &... args)
+    {
+        log(level::err, fmt, args...);
+    }
+
+    template<typename... Args>
+    void critical(wstring_view_t fmt, const Args &... args)
+    {
+        log(level::critical, fmt, args...);
+    }
+
+    // T can be statically converted to wstring_view
+    template<class T, typename std::enable_if<is_convertible_to_wstring_view<const T &>::value, T>::type * = nullptr>
+    void log(source_loc loc, level::level_enum lvl, const T &msg)
     {
         if (!should_log(lvl))
         {
@@ -240,64 +293,13 @@ public:
 
         try
         {
-            // format to wmemory_buffer and convert to utf8
-            fmt::wmemory_buffer wbuf;
-            fmt::format_to(wbuf, fmt, args...);
             fmt::memory_buffer buf;
-            details::os::wbuf_to_utf8buf(wbuf, buf);
-            details::log_msg log_msg(source, name_, lvl, string_view_t(buf.data(), buf.size()));
+            details::os::wstr_to_utf8buf(msg, buf);
+
+            details::log_msg log_msg(loc, name_, lvl, string_view_t(buf.data(), buf.size()));
             sink_it_(log_msg);
         }
-        catch (const std::exception &ex)
-        {
-            err_handler_(ex.what());
-        }
-        catch (...)
-        {
-            err_handler_("Unknown exception in logger");
-        }
-    }
-
-    template<typename... Args>
-    void log(level::level_enum lvl, const wchar_t *fmt, const Args &... args)
-    {
-        log(source_loc{}, lvl, fmt, args...);
-    }
-
-    template<typename... Args>
-    void trace(const wchar_t *fmt, const Args &... args)
-    {
-        log(level::trace, fmt, args...);
-    }
-
-    template<typename... Args>
-    void debug(const wchar_t *fmt, const Args &... args)
-    {
-        log(level::debug, fmt, args...);
-    }
-
-    template<typename... Args>
-    void info(const wchar_t *fmt, const Args &... args)
-    {
-        log(level::info, fmt, args...);
-    }
-
-    template<typename... Args>
-    void warn(const wchar_t *fmt, const Args &... args)
-    {
-        log(level::warn, fmt, args...);
-    }
-
-    template<typename... Args>
-    void error(const wchar_t *fmt, const Args &... args)
-    {
-        log(level::err, fmt, args...);
-    }
-
-    template<typename... Args>
-    void critical(const wchar_t *fmt, const Args &... args)
-    {
-        log(level::critical, fmt, args...);
+        SPDLOG_LOGGER_CATCH()
     }
 #endif // _WIN32
 #endif // SPDLOG_WCHAR_TO_UTF8_SUPPORT
@@ -345,8 +347,8 @@ protected:
     virtual void flush_();
     bool should_flush_(const details::log_msg &msg);
 
-    // default error handler.
-    // print the error to stderr with the max rate of 1 message/minute.
+    // handle errors during logging.
+    // default handler prints the error to stderr at max rate of 1 message/sec.
     void err_handler_(const std::string &msg);
 };
 

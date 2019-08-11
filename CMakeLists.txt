@@ -1,18 +1,16 @@
 # Copyright(c) 2019 spdlog authors
 # Distributed under the MIT License (http://opensource.org/licenses/MIT)
 
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.2)
 
 #---------------------------------------------------------------------------------------
 # Start spdlog project
 #---------------------------------------------------------------------------------------
-include(cmake/utils.cmake)
-spdlog_extract_version()
-project(spdlog VERSION ${SPDLOG_VERSION} LANGUAGES CXX)
-message(STATUS "Build spdlog: ${SPDLOG_VERSION}")
-
 include(GNUInstallDirs)
+include(cmake/utils.cmake)
 include(cmake/ide.cmake)
+
+spdlog_extract_version()
 
 #---------------------------------------------------------------------------------------
 # Set default build to release
@@ -20,6 +18,9 @@ include(cmake/ide.cmake)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose Release or Debug" FORCE)
 endif()
+
+project(spdlog VERSION ${SPDLOG_VERSION} LANGUAGES CXX)
+message(STATUS "Build spdlog: ${SPDLOG_VERSION}")
 
 #---------------------------------------------------------------------------------------
 # Compiler config
@@ -40,17 +41,32 @@ if (NOT DEFINED SPDLOG_MASTER_PROJECT)
     endif()
 endif ()
 
-option(SPDLOG_BUILD_EXAMPLES "Build examples" OFF)
+# example options
+option(SPDLOG_BUILD_EXAMPLE "Build example" ${SPDLOG_MASTER_PROJECT})
+option(SPDLOG_BUILD_EXAMPLE_HO "Build header only example" OFF)
+
+# testing options
+option(SPDLOG_BUILD_TESTS "Build tests" ${SPDLOG_MASTER_PROJECT})
+option(SPDLOG_BUILD_TESTS_HO "Build tests using the header only version" OFF)
+
+# bench options
 option(SPDLOG_BUILD_BENCH "Build benchmarks (Requires https://github.com/google/benchmark.git to be installed)" OFF)
-option(SPDLOG_BUILD_TESTS "Build tests" OFF)
-option(SPDLOG_BUILD_HO_TESTS "Build tests using the header only version" OFF)
+
+# sanitizer options
 option(SPDLOG_SANITIZE_ADDRESS "Enable address sanitizer in tests" OFF)
+
+# install options
 option(SPDLOG_INSTALL "Generate the install target." ${SPDLOG_MASTER_PROJECT})
 option(SPDLOG_FMT_EXTERNAL "Use external fmt library instead of bundled" OFF)
 
-message(STATUS "Build type: " ${CMAKE_BUILD_TYPE})
+if(WIN32)
+	option(SPDLOG_WCHAR_SUPPORT "Support wchar api" OFF)
+endif()
+
 
 find_package(Threads REQUIRED)
+
+message(STATUS "Build type: " ${CMAKE_BUILD_TYPE})
 
 #---------------------------------------------------------------------------------------
 # Static/Shared library (shared not supported in windows yet)
@@ -98,15 +114,21 @@ if(SPDLOG_FMT_EXTERNAL)
     target_link_libraries(spdlog_header_only INTERFACE fmt::fmt)
 endif()
 
+if(SPDLOG_WCHAR_SUPPORT)
+	target_compile_definitions(spdlog PUBLIC SPDLOG_WCHAR_TO_UTF8_SUPPORT)
+	target_compile_definitions(spdlog_header_only INTERFACE SPDLOG_WCHAR_TO_UTF8_SUPPORT)
+ endif()
+
+
 #---------------------------------------------------------------------------------------
 # Build binaries
 #---------------------------------------------------------------------------------------
-if(SPDLOG_BUILD_EXAMPLES)
+if(SPDLOG_BUILD_EXAMPLE OR SPDLOG_BUILD_EXAMPLE_HO)
     message(STATUS "Generating examples")
     add_subdirectory(example)
 endif()
 
-if(SPDLOG_BUILD_TESTS)
+if(SPDLOG_BUILD_TESTS OR SPDLOG_BUILD_TESTS_HO)
     message(STATUS "Generating tests")
     include(CTest)
     add_subdirectory(tests)

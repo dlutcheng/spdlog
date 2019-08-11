@@ -10,6 +10,8 @@
 #include "spdlog/sinks/sink.h"
 #include "spdlog/details/pattern_formatter.h"
 
+#include <cstdio>
+
 namespace spdlog {
 
 // public methods
@@ -58,29 +60,18 @@ SPDLOG_INLINE void swap(logger &a, logger &b)
     a.swap(b);
 }
 
-SPDLOG_INLINE void logger::log(source_loc loc, level::level_enum lvl, const char *msg)
+SPDLOG_INLINE void logger::log(source_loc loc, level::level_enum lvl, string_view_t msg)
 {
     if (!should_log(lvl))
     {
         return;
     }
 
-    try
-    {
-        details::log_msg log_msg(loc, string_view_t(name_), lvl, string_view_t(msg));
-        sink_it_(log_msg);
-    }
-    catch (const std::exception &ex)
-    {
-        err_handler_(ex.what());
-    }
-    catch (...)
-    {
-        err_handler_("Unknown exception in logger");
-    }
+    details::log_msg log_msg(loc, string_view_t(name_), lvl, msg);
+    sink_it_(log_msg);
 }
 
-SPDLOG_INLINE void logger::log(level::level_enum lvl, const char *msg)
+SPDLOG_INLINE void logger::log(level::level_enum lvl, string_view_t msg)
 {
     log(source_loc{}, lvl, msg);
 }
@@ -137,18 +128,7 @@ SPDLOG_INLINE void logger::set_pattern(std::string pattern, pattern_time_type ti
 // flush functions
 SPDLOG_INLINE void logger::flush()
 {
-    try
-    {
-        flush_();
-    }
-    catch (const std::exception &ex)
-    {
-        err_handler_(ex.what());
-    }
-    catch (...)
-    {
-        err_handler_("Unknown exception in logger");
-    }
+    flush_();
 }
 
 SPDLOG_INLINE void logger::flush_on(level::level_enum log_level)
@@ -193,7 +173,11 @@ SPDLOG_INLINE void logger::sink_it_(details::log_msg &msg)
     {
         if (sink->should_log(msg.level))
         {
-            sink->log(msg);
+            try
+            {
+                sink->log(msg);
+            }
+            SPDLOG_LOGGER_CATCH()
         }
     }
 
@@ -207,7 +191,11 @@ SPDLOG_INLINE void logger::flush_()
 {
     for (auto &sink : sinks_)
     {
-        sink->flush();
+        try
+        {
+            sink->flush();
+        }
+        SPDLOG_LOGGER_CATCH()
     }
 }
 
@@ -219,16 +207,29 @@ SPDLOG_INLINE bool logger::should_flush_(const details::log_msg &msg)
 
 SPDLOG_INLINE void logger::err_handler_(const std::string &msg)
 {
+
     if (custom_err_handler_)
     {
         custom_err_handler_(msg);
     }
     else
     {
-        auto tm_time = details::os::localtime();
+        using std::chrono::system_clock;
+        static std::mutex mutex;
+        static std::chrono::system_clock::time_point last_report_time;
+        static size_t err_counter = 0;
+        std::lock_guard<std::mutex> lk{mutex};
+        auto now = system_clock::now();
+        err_counter++;
+        if (now - last_report_time < std::chrono::seconds(1))
+        {
+            return;
+        }
+        last_report_time = now;
+        auto tm_time = details::os::localtime(system_clock::to_time_t(now));
         char date_buf[64];
         std::strftime(date_buf, sizeof(date_buf), "%Y-%m-%d %H:%M:%S", &tm_time);
-        fmt::print(stderr, "[*** LOG ERROR ***] [{}] [{}] {}\n", date_buf, name(), msg);
+        fprintf(stderr, "[*** LOG ERROR #%04zu ***] [%s] [%s] {%s}\n", err_counter, date_buf, name().c_str(), msg.c_str());
     }
 }
 } // namespace spdlog
